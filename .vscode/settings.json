@@ -1,0 +1,7 @@
+{
+    "C_Cpp.autoAddFileAssociations": false,
+    "files.exclude": {
+        "build/": true
+    },
+    "editor.formatOnSave": true,
+}

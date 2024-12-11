@@ -1,0 +1,35 @@
+FROM ubuntu:24.04
+
+
+########################################################################################################################
+# Install Dependencies                                                                                                 #
+########################################################################################################################
+USER root
+
+RUN <<EOF
+    apt-get update
+    # Basic Requirements for compiling the code
+    apt-get -y install g++-13 cmake git
+    # Needed for the development environment
+    apt-get -y install cppcheck gdb clang-format
+    # Needed to build the PAM module
+    apt-get -y install libpam-runtime libpam-systemd libpam-cap libpam-modules libpam-modules-bin  libpam-dev
+
+    # OpenSSL needed by CPR
+    apt-get -y install libssl-dev
+
+    # Needed to communicate with the service daemon
+    # apt-get -y install capnproto
+    apt-get -y install zlib1g-dev
+EOF
+
+
+
+########################################################################################################################
+# Create User                                                                                                          #
+########################################################################################################################
+# Change root Password to 1234
+RUN echo 'root:1234' | chpasswd
+# Create new user: "dev"
+RUN useradd -ms /bin/bash dev
+USER dev
