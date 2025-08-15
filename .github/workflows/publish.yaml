@@ -47,7 +47,7 @@ jobs:
     needs:
       - build
     permissions:
-    contents: write
+      contents: write
     runs-on: ubuntu-latest
     steps:
       - name: Download Debian Package
