@@ -59,7 +59,6 @@ set_target_properties(authorized_keys PROPERTIES
 )
 target_link_libraries(authorized_keys daemonproto)
 target_link_libraries(authorized_keys nss_gitlab)
-set_target_properties(authorized_keys PROPERTIES EXPORT_NAME "fetchgitlabkeys")
 
 ########################################################################################################################
 # DEPENDENCIES                                                                                                         #

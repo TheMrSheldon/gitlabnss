@@ -6,6 +6,7 @@
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
 
+#include <grp.h>
 #include <nss.h>
 #include <pwd.h>
 #include <shadow.h>
@@ -21,6 +22,7 @@ static auto initLogger() {
 	auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
 	std::vector<spdlog::sink_ptr> sinks{console_sink};
 	auto logger = std::make_shared<spdlog::logger>("", sinks.begin(), sinks.end());
+	logger->set_level(spdlog::level::trace);
 	logger->flush_on(spdlog::level::info);
 	SPDLOG_LOGGER_DEBUG(logger, "Logger created");
 	return logger;
@@ -41,7 +43,7 @@ void populatePasswd(passwd& pwd, const User::Reader& user, std::span<char> buffe
 	// UID
 	pwd.pw_uid = user.getId() + config.nss.uidOffset;
 	// GID
-	pwd.pw_gid = user.getGroups().size() > 0 ? user.getGroups()[0].getId() : 65534 /*nogroup*/;
+	pwd.pw_gid = user.getGroups().size() > 0 ? (user.getGroups()[0].getId() + config.nss.gidOffset) : 65534 /*nogroup*/;
 	// Real Name
 	pwd.pw_gecos = buffer.data() + stream.tellp();
 	stream << user.getName().cStr() << '\0';
@@ -150,12 +152,84 @@ nss_status _nss_gitlab_endpwent() {
 /**********************************************************************************************************************/
 /* GROUPS                                                                                                             */
 /**********************************************************************************************************************/
-nss_status _nss_gitlab_getgrgid_r(gid_t gid, group* result_buf, char* buffer, size_t buflen, group** result) {
-	SPDLOG_LOGGER_INFO(logger, "getgrgid_r({})", gid);
-	return nss_status::NSS_STATUS_NOTFOUND;
+void populateGroup(group& group, const Group::Reader& obj, std::span<char> buffer) {
+	auto stream = std::ospanstream(buffer);
+	// Username
+	group.gr_name = buffer.data() + stream.tellp();
+	stream << obj.getName().cStr() << '\0';
+	// Password
+	const char Password[] = "*"; // user can't login with PW: https://www.man7.org/linux/man-pages/man5/shadow.5.html
+	group.gr_passwd = buffer.data() + stream.tellp();
+	stream << Password << '\0';
+	// GID
+	group.gr_gid = obj.getId() + config.nss.gidOffset;
+	// Members
+	group.gr_mem = nullptr;
 }
-nss_status _nss_gitlab_getgrnam_r(const char* name, group* result_buf, char* buffer, size_t buflen, group** result) {
+
+nss_status _nss_gitlab_getgrgid_r(gid_t gid, group* result_buf, char* buf, size_t buflen, group** result) {
+	SPDLOG_LOGGER_INFO(logger, "getgrgid_r({})", gid);
+	if (gid < config.nss.gidOffset)
+		return nss_status::NSS_STATUS_NOTFOUND;
+	auto io = kj::setupAsyncIo();
+	auto& waitScope = io.waitScope;
+	auto daemon = initClient(io);
+
+	if (!daemon)
+		return NSS_STATUS_UNAVAIL;
+
+	auto request = daemon->getGroupByIDRequest();
+	request.setId(gid - config.nss.gidOffset);
+	auto promise = request.send().wait(waitScope);
+
+	auto user = promise.getGroup();
+	switch (static_cast<Error>(promise.getErrcode())) {
+	case Error::Ok:
+		populateGroup(*result_buf, user, {buf, buflen});
+		SPDLOG_LOGGER_DEBUG(logger, "Found!");
+		*result = result_buf;
+		return nss_status::NSS_STATUS_SUCCESS;
+	case Error::NotFound:
+		SPDLOG_LOGGER_DEBUG(logger, "Not Found");
+		*result = nullptr;
+		return nss_status::NSS_STATUS_NOTFOUND;
+	default:
+		SPDLOG_LOGGER_ERROR(logger, "Other Error");
+		SPDLOG_LOGGER_ERROR(logger, "Error {}", promise.getErrcode());
+		*result = nullptr;
+		return nss_status::NSS_STATUS_UNAVAIL;
+	}
+}
+
+nss_status _nss_gitlab_getgrnam_r(const char* name, group* result_buf, char* buf, size_t buflen, group** result) {
 	SPDLOG_LOGGER_INFO(logger, "getgrnam_r({})", name);
-	return nss_status::NSS_STATUS_NOTFOUND;
+	auto io = kj::setupAsyncIo();
+	auto& waitScope = io.waitScope;
+	auto daemon = initClient(io);
+
+	if (!daemon)
+		return NSS_STATUS_UNAVAIL;
+
+	auto request = daemon->getGroupByNameRequest();
+	request.setName(name);
+	auto promise = request.send().wait(waitScope);
+
+	auto user = promise.getGroup();
+	switch (static_cast<Error>(promise.getErrcode())) {
+	case Error::Ok:
+		populateGroup(*result_buf, user, {buf, buflen});
+		SPDLOG_LOGGER_DEBUG(logger, "Found!");
+		*result = result_buf;
+		return nss_status::NSS_STATUS_SUCCESS;
+	case Error::NotFound:
+		SPDLOG_LOGGER_DEBUG(logger, "Not Found");
+		*result = nullptr;
+		return nss_status::NSS_STATUS_NOTFOUND;
+	default:
+		SPDLOG_LOGGER_ERROR(logger, "Other Error");
+		SPDLOG_LOGGER_ERROR(logger, "Error {}", promise.getErrcode());
+		*result = nullptr;
+		return nss_status::NSS_STATUS_UNAVAIL;
+	}
 }
 }

@@ -21,4 +21,6 @@ interface GitLabDaemon {
     getUserByID @0 (id :UserID) -> (errcode :UInt32, user :User);
     getUserByName @1 (name :Text) -> (errcode :UInt32, user :User);
     getSSHKeys @2 (id :UserID) -> (errcode :UInt32, keys :Text);
+    getGroupByID @3 (id :GroupID) -> (errcode :UInt32, group :Group);
+    getGroupByName @4 (name :Text) -> (errcode :UInt32, group :Group);
 }

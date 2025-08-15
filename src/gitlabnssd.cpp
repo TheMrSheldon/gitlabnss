@@ -15,11 +15,12 @@
 
 #include <csignal>
 #include <filesystem>
+#include <fstream>
 #include <ranges>
 #include <string>
-#include <vector>
-
 #include <sys/stat.h>
+#include <unistd.h>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -35,6 +36,7 @@ static void initLogger() {
 			basic_sink
 	};
 	auto logger = std::make_shared<spdlog::logger>("", sinks.begin(), sinks.end());
+	logger->set_level(spdlog::level::trace);
 	logger->flush_on(spdlog::level::info);
 	spdlog::set_default_logger(logger);
 }
@@ -105,10 +107,45 @@ public:
 		context.getResults().setErrcode(static_cast<uint32_t>(err));
 		return kj::READY_NOW;
 	}
+
+	virtual ::kj::Promise<void> getGroupByID(GetGroupByIDContext context) override {
+		spdlog::info("getGroupByID({})", context.getParams().getId());
+		gitlab::Group group;
+		Error err;
+		if ((err = gitlab.fetchGroupByID(context.getParams().getId(), group)) == Error::Ok) {
+			spdlog::debug("Found");
+			auto output = context.getResults().initGroup();
+			output.setId(group.id);
+			output.setName(group.name);
+		}
+		context.getResults().setErrcode(static_cast<uint32_t>(err));
+		return kj::READY_NOW;
+	}
+	virtual ::kj::Promise<void> getGroupByName(GetGroupByNameContext context) override {
+		spdlog::info("getGroupByName({})", context.getParams().getName().cStr());
+		gitlab::Group group;
+		Error err;
+		if ((err = gitlab.fetchGroupByName(context.getParams().getName().cStr(), group)) == Error::Ok) {
+			spdlog::debug("Found");
+			auto output = context.getResults().initGroup();
+			output.setId(group.id);
+			output.setName(group.name);
+		}
+		context.getResults().setErrcode(static_cast<uint32_t>(err));
+		return kj::READY_NOW;
+	}
 };
 
 static auto [promise, fulfiller] = kj::newPromiseAndFulfiller<void>();
 int main(int argc, char* argv[]) {
+	// Daemonize
+	daemon(0, 0);
+	{
+		std::ofstream fstream((std::filesystem::absolute("run") / "gitlabnssd.pid").c_str());
+		fstream << getpid() << std::endl;
+	}
+
+	// Init
 	auto configPath = fs::current_path().root_path() / "etc" / "gitlabnss" / "gitlabnss.conf";
 	initLogger();
 	spdlog::info("Starting the GitLab NSS daemon...");

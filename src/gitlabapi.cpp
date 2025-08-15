@@ -74,20 +74,11 @@ Error GitLab::fetchAuthorizedKeys(UserID id, std::vector<std::string>& keys) con
 	return Error::Ok;
 }
 
-#include <iostream>
-#include <rapidjson/prettywriter.h>
-
 Error GitLab::fetchGroups(User& user) const {
 	auto fetched = fetch(config, std::format("{}/users/{}/memberships", config.gitlabapi.baseUrl, user.id));
 	if (!fetched.has_value())
 		return fetched.error();
 	auto& json = fetched.value();
-	rapidjson::StringBuffer sb;
-	rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(sb);
-	json.Accept(writer); // Accept() traverses the DOM and generates Handler events.
-	puts(sb.GetString());
-	std::cout << (json.IsArray() ? "Array" : "No Array") << std::endl;
-	std::cout << json.GetType() << std::endl;
 	if (!json.IsArray())
 		return Error::ResponseFormatError;
 	user.groups.clear();
@@ -95,5 +86,32 @@ Error GitLab::fetchGroups(User& user) const {
 		user.groups.emplace_back(
 				Group{.id = group["source_id"].Get<decltype(user.id)>(), .name = group["source_name"].GetString()}
 		);
+	return Error::Ok;
+}
+
+Error GitLab::fetchGroupByName(std::string groupname, Group& group) const {
+	/**  \todo should not hurt to apply url-encoding of the groupname **/
+	auto fetched = fetch(config, std::format("{}/groups?name={}", config.gitlabapi.baseUrl, groupname));
+	if (!fetched.has_value())
+		return fetched.error();
+	auto& json = fetched.value();
+	if (!json.IsArray() || json.Size() != 1)
+		return Error::ResponseFormatError;
+	auto& groupJson = json[0];
+	group.id = groupJson["id"].Get<decltype(group.id)>();
+	group.name = groupJson["name"].GetString();
+	return Error::Ok;
+}
+
+Error GitLab::fetchGroupByID(GroupID id, Group& group) const {
+	auto fetched = fetch(config, std::format("{}/groups/{}", config.gitlabapi.baseUrl, id));
+	if (!fetched.has_value())
+		return fetched.error();
+	auto& json = fetched.value();
+	if (!json.IsObject())
+		return Error::ResponseFormatError;
+	auto& groupJson = json;
+	group.id = groupJson["id"].Get<decltype(group.id)>();
+	group.name = groupJson["name"].GetString();
 	return Error::Ok;
 }

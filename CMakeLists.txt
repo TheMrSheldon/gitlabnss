@@ -15,10 +15,13 @@ add_subdirectory(src)
 if((CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME))
 	include(GNUInstallDirs)
 
+    set(CMAKE_INSTALL_PREFIX /) # Everything is an absolute path
     set(CPACK_PACKAGING_INSTALL_PREFIX /) # Everything is an absolute path
+    set(CMAKE_INSTALL_LIBDIR "/usr/lib")
+    set(CMAKE_INSTALL_FULL_LIBDIR "/usr/lib")
 
 	install(TARGETS nss_gitlab
-		ARCHIVE DESTINATION /usr/lib # ${CMAKE_INSTALL_FULL_LIBDIR}
+		ARCHIVE DESTINATION ${CMAKE_INSTALL_FULL_LIBDIR}
 			COMPONENT nssgitlab
         PERMISSIONS PERMISSIONS OWNER_READ OWNER_WRITE #?? GROUP_READ GROUP_WRITE WORLD_READ WORLD_WRITE
     )
