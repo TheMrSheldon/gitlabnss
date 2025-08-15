@@ -13,9 +13,13 @@
 #include <capnp/ez-rpc.h>
 #include <protocol/messages.capnp.h>
 
+#include <csignal>
 #include <filesystem>
-#include <sys/socket.h>
-#include <sys/un.h>
+#include <ranges>
+#include <string>
+#include <vector>
+
+#include <sys/stat.h>
 
 namespace fs = std::filesystem;
 
@@ -28,121 +32,92 @@ static void initLogger() {
 	spdlog::set_default_logger(logger);
 }
 
-class UnixListenSocket final {
-private:
-	int sockfd;
-
-public:
-	UnixListenSocket(const std::filesystem::path& path) : sockfd(socket(AF_UNIX, SOCK_STREAM, 0)) {
-		if (sockfd == -1)
-			return;
-		sockaddr_un addr;
-		addr.sun_family = AF_UNIX;
-		/** GCC does not have strcpy_s :( **/
-		/** \todo bounds checking **/
-		std::strcpy(addr.sun_path, path.c_str());
-		if (bind(sockfd, (sockaddr*)&addr, sizeof(addr)) == -1) {
-			close();
-			return;
-		}
-	}
-	~UnixListenSocket() { close(); }
-
-	void close() {
-		::close(sockfd);
-		sockfd = -1;
-	}
-
-	operator bool() const noexcept { return sockfd != -1; }
-};
-
-class UnixSocket final {
-private:
-	int sockfd;
-
-public:
-	UnixSocket(const std::filesystem::path& path) : sockfd(socket(AF_UNIX, SOCK_STREAM, 0)) {
-		if (sockfd == -1)
-			return;
-		sockaddr_un addr;
-		addr.sun_family = AF_UNIX;
-		/** GCC does not have strcpy_s :( **/
-		/** \todo bounds checking **/
-		std::strcpy(addr.sun_path, path.c_str());
-		if (connect(sockfd, (sockaddr*)&addr, sizeof(addr)) == -1) {
-			close();
-			return;
-		}
-	}
-	~UnixSocket() { close(); }
-
-	void close() {
-		::close(sockfd);
-		sockfd = -1;
-	}
-
-	operator bool() const noexcept { return sockfd != -1; }
-};
-
-static auto toUser(const gitlab::User& user) {
-	::capnp::MallocMessageBuilder message;
-	auto builder = message.initRoot<User>();
-	builder.setId(user.id);
-	builder.setName(user.name);
-	builder.setUsername(user.username);
-	return builder;
-}
-
 class GitLabDaemonImpl final : public GitLabDaemon::Server {
 private:
 	Config config;
 	gitlab::GitLab gitlab;
 
 public:
-	GitLabDaemonImpl(Config config) : config(config), gitlab(config) {}
+	GitLabDaemonImpl(Config config) : config(config), gitlab(this->config) {}
 
 	virtual ::kj::Promise<void> getUserByID(GetUserByIDContext context) override {
-		if (gitlab::User user; gitlab.fetchUserByID(context.getParams().getId(), user) == gitlab::Error::Ok) {
+		spdlog::info("getUserByID({})", context.getParams().getId());
+		gitlab::User user;
+		Error err;
+		if ((err = gitlab.fetchUserByID(context.getParams().getId(), user)) == Error::Ok) {
+			spdlog::debug("Found");
 			auto output = context.getResults().initUser();
 			output.setId(user.id);
 			output.setName(user.name);
 			output.setUsername(user.username);
 		}
+		context.getResults().setErrcode(static_cast<uint32_t>(err));
 		return kj::READY_NOW;
 	}
 	virtual ::kj::Promise<void> getUserByName(GetUserByNameContext context) override {
-		if (gitlab::User user;
-			gitlab.fetchUserByUsername(context.getParams().getName().cStr(), user) == gitlab::Error::Ok) {
+		spdlog::info("getUserByName({})", context.getParams().getName().cStr());
+		gitlab::User user;
+		Error err;
+		if ((err = gitlab.fetchUserByUsername(context.getParams().getName().cStr(), user)) == Error::Ok) {
+			spdlog::debug("Found");
 			auto output = context.getResults().initUser();
 			output.setId(user.id);
 			output.setName(user.name);
 			output.setUsername(user.username);
 		}
+		context.getResults().setErrcode(static_cast<uint32_t>(err));
+		return kj::READY_NOW;
+	}
+
+	virtual ::kj::Promise<void> getSSHKeys(GetSSHKeysContext context) {
+		spdlog::info("getSSHKeys({})", context.getParams().getId());
+		std::vector<std::string> keys;
+		Error err;
+		if ((err = gitlab.fetchAuthorizedKeys(context.getParams().getId(), keys)) == Error::Ok) {
+			spdlog::debug("Found");
+			// When std::ranges::to is finally implemented by GCC:
+			// std::string joined = keys | std::views::join | std::ranges::to<std::string>();
+			std::string joined;
+			for (auto&& key : keys)
+				joined += key;
+
+			context.getResults().setKeys(joined);
+		}
+		context.getResults().setErrcode(static_cast<uint32_t>(err));
 		return kj::READY_NOW;
 	}
 };
 
+static auto [promise, fulfiller] = kj::newPromiseAndFulfiller<void>();
 int main(int argc, char* argv[]) {
 	auto configPath = fs::current_path().root_path() / "etc" / "gitlabnss" / "gitlabnss.conf";
-	auto socketPath = fs::current_path().root_path() / "var" / "run" / "gitlabnss.sock";
 	initLogger();
 	spdlog::info("Starting the GitLab NSS daemon...");
 	spdlog::info("Reading config from {}", configPath.string());
-	auto config = Config::fromFile(fs::current_path().root_path() / "etc" / "gitlabnss" / "gitlabnss.conf");
+	auto config = Config::fromFile(configPath);
+	auto socketPath = config.general.socketPath;
 	spdlog::info("Success! Will use {} to communicate with GitLab", config.gitlabapi.baseUrl);
 	spdlog::info("Binding socket to {}", socketPath.string());
-	/*UnixListenSocket socket{socketPath};
-	if (!socket) {
-		spdlog::critical("Failed to create socket");
-		return 1;
-	}*/
 	capnp::Capability::Client heap{kj::heap<GitLabDaemonImpl>(config)};
 	auto addr = std::format("unix:{}", socketPath.string());
 	kj::StringPtr bind = addr.c_str();
 	capnp::EzRpcServer server{heap, bind};
 	auto& waitScope = server.getWaitScope();
 
-	// Run forever, accepting connections and handling requests.
-	kj::NEVER_DONE.wait(waitScope);
+	waitScope.poll(); /* Poll once to create the socket file. */
+	spdlog::info("Setting socket permissions for {} to 0o{:o}", socketPath.c_str(), config.general.socketPerms);
+	if (chmod(socketPath.c_str(), static_cast<mode_t>(config.general.socketPerms)) != 0)
+		spdlog::warn("Failed to change permissions with errno {}", errno);
+
+	spdlog::info("Instantiating SIGINT handler");
+	std::signal(SIGINT, +[](int signal) { fulfiller->fulfill(); });
+
+	// Run until SIGINT is signaled; accept connections and handle requests.
+	spdlog::info("Listening...");
+	promise.wait(waitScope);
+
+	// A shame that EzRpcServer does not clean up after itself :(
+	unlink(socketPath.string().c_str());
+	spdlog::info("Good bye!");
 	return 0;
 }

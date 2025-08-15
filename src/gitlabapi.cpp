@@ -6,7 +6,6 @@
 #include <expected>
 #include <format>
 
-using gitlab::Error;
 using gitlab::GitLab;
 using gitlab::Group;
 using gitlab::GroupID;

@@ -11,9 +11,7 @@ RUN <<EOF
     # Basic Requirements for compiling the code
     apt-get -y install g++-13 cmake git
     # Needed for the development environment
-    apt-get -y install cppcheck gdb clang-format
-    # Needed to build the PAM module
-    apt-get -y install libpam-runtime libpam-systemd libpam-cap libpam-modules libpam-modules-bin  libpam-dev
+    apt-get -y install cppcheck gdb clang-tidy clang-format
 
     # OpenSSL needed by CPR
     apt-get -y install libssl-dev

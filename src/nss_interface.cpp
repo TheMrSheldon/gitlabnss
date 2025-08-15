@@ -1,3 +1,11 @@
+#include <config.hpp>
+#include <error.hpp>
+#include <rpcclient.hpp>
+
+#include <spdlog/sinks/basic_file_sink.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
+#include <spdlog/spdlog.h>
+
 #include <nss.h>
 #include <pwd.h>
 #include <shadow.h>
@@ -6,24 +14,10 @@
 #include <span>
 #include <spanstream>
 
-#include <config.hpp>
-#include <gitlabapi.hpp>
-#include <spdlog/sinks/basic_file_sink.h>
-#include <spdlog/sinks/stdout_color_sinks.h>
-#include <spdlog/spdlog.h>
-
 namespace fs = std::filesystem;
-
-using gitlab::Error;
-using gitlab::User;
-
-const char DefaultShell[] = "/usr/bin/bash";
-const fs::path HomeDirBase = fs::path("/") / "gitlabhome";
 
 static auto initLogger() {
 	auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-	//auto basic_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>("/var/log/nss_gitlab.log");
-	//std::vector<spdlog::sink_ptr> sinks{console_sink, basic_sink};
 	std::vector<spdlog::sink_ptr> sinks{console_sink};
 	auto logger = std::make_shared<spdlog::logger>("", sinks.begin(), sinks.end());
 	logger->flush_on(spdlog::level::info);
@@ -33,39 +27,32 @@ static auto initLogger() {
 
 static auto logger = initLogger();
 static auto config = Config::fromFile(fs::current_path().root_path() / "etc" / "gitlabnss" / "gitlabnss.conf");
-static gitlab::GitLab gitlabclient{config};
 
-void populatePasswd(passwd& pwd, User& user, std::span<char> buffer) {
+void populatePasswd(passwd& pwd, const User::Reader& user, std::span<char> buffer) {
 	auto stream = std::ospanstream(buffer);
 	// Username
 	pwd.pw_name = buffer.data() + stream.tellp();
-	stream << user.username << '\0';
+	stream << user.getUsername().cStr() << '\0';
 	// Password
 	const char Password[] = "";
 	pwd.pw_passwd = buffer.data() + stream.tellp();
 	stream << Password << '\0';
 	// UID
-	pwd.pw_uid = user.id + config.nss.uidOffset;
+	pwd.pw_uid = user.getId() + config.nss.uidOffset;
 	// GID
 	/** \todo **/
 	// Real Name
 	pwd.pw_gecos = buffer.data() + stream.tellp();
-	stream << user.name << '\0';
+	stream << user.getName().cStr() << '\0';
 	// Shell
 	pwd.pw_shell = buffer.data() + stream.tellp();
-	stream << DefaultShell << '\0';
+	stream << config.nss.shell << '\0';
 	// Home directory
 	pwd.pw_dir = buffer.data() + stream.tellp();
-	std::string homedir = HomeDirBase / user.username;
-	fs::create_directories(HomeDirBase / user.username);
+	std::string homedir = config.nss.homesRoot / user.getUsername().cStr();
+	fs::create_directories(config.nss.homesRoot / user.getUsername().cStr());
 	chown(homedir.c_str(), pwd.pw_uid, pwd.pw_gid);
 	stream << homedir << '\0';
-
-	SPDLOG_LOGGER_INFO(logger, "Written PWD:");
-	SPDLOG_LOGGER_INFO(logger, "    user name: {}", pwd.pw_name);
-	SPDLOG_LOGGER_INFO(logger, "    full name: {}", pwd.pw_gecos);
-	SPDLOG_LOGGER_INFO(logger, "    homedir:   {}", pwd.pw_dir);
-	SPDLOG_LOGGER_INFO(logger, "    shell:     {}", pwd.pw_shell);
 }
 
 extern "C" {
@@ -82,8 +69,19 @@ nss_status _nss_gitlab_getpwuid_r(uid_t uid, passwd* pwd, char* buf, size_t bufl
 	if (uid < config.nss.uidOffset)
 		return nss_status::NSS_STATUS_NOTFOUND;
 	SPDLOG_LOGGER_INFO(logger, "Fetching User {}", uid - config.nss.uidOffset);
-	Error err;
-	switch (gitlab::User user; err = gitlabclient.fetchUserByID(uid - config.nss.uidOffset, user)) {
+	auto io = kj::setupAsyncIo();
+	auto& waitScope = io.waitScope;
+	auto daemon = initClient(io);
+
+	if (!daemon)
+		return NSS_STATUS_UNAVAIL;
+
+	auto request = daemon->getUserByIDRequest();
+	request.setId(uid - config.nss.uidOffset);
+	auto promise = request.send().wait(waitScope);
+
+	auto user = promise.getUser();
+	switch (static_cast<Error>(promise.getErrcode())) {
 	case Error::Ok:
 		//gitlabclient.fetchGroups(user);
 		populatePasswd(*pwd, user, {buf, buflen});
@@ -94,14 +92,26 @@ nss_status _nss_gitlab_getpwuid_r(uid_t uid, passwd* pwd, char* buf, size_t bufl
 		return nss_status::NSS_STATUS_NOTFOUND;
 	default:
 		SPDLOG_LOGGER_INFO(logger, "Other Error");
-		SPDLOG_LOGGER_INFO(logger, "Error {}", static_cast<unsigned>(err));
+		SPDLOG_LOGGER_INFO(logger, "Error {}", promise.getErrcode());
 		return nss_status::NSS_STATUS_UNAVAIL;
 	}
 }
 
 nss_status _nss_gitlab_getpwnam_r(const char* name, passwd* pwd, char* buf, size_t buflen, int* errnop) {
 	SPDLOG_LOGGER_INFO(logger, "getpwnam_r({})", name);
-	switch (gitlab::User user; gitlabclient.fetchUserByUsername(name, user)) {
+	auto io = kj::setupAsyncIo();
+	auto& waitScope = io.waitScope;
+	auto daemon = initClient(io);
+
+	if (!daemon)
+		return NSS_STATUS_UNAVAIL;
+
+	auto request = daemon->getUserByNameRequest();
+	request.setName(name);
+	auto promise = request.send().wait(waitScope);
+
+	auto user = promise.getUser();
+	switch (static_cast<Error>(promise.getErrcode())) {
 	case Error::Ok:
 		//gitlabclient.fetchGroups(user);
 		populatePasswd(*pwd, user, {buf, buflen});
@@ -112,6 +122,7 @@ nss_status _nss_gitlab_getpwnam_r(const char* name, passwd* pwd, char* buf, size
 		return nss_status::NSS_STATUS_NOTFOUND;
 	default:
 		SPDLOG_LOGGER_INFO(logger, "Other Error");
+		SPDLOG_LOGGER_INFO(logger, "Error {}", promise.getErrcode());
 		return nss_status::NSS_STATUS_UNAVAIL;
 	}
 }

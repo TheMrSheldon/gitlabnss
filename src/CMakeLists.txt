@@ -1,11 +1,7 @@
 include(FetchContent)
 
-add_executable(authorized_keys
-    authorized_keys.cpp
-)
-target_link_libraries(authorized_keys nss_gitlab)
-#target_link_libraries(nss_gitlab PRIVATE pam)
-
+set(BUILD_SHARED_LIBS OFF)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 ########################################################################################################################
 # PROTOCOL                                                                                                             #
@@ -14,7 +10,6 @@ target_link_libraries(authorized_keys nss_gitlab)
 FetchContent_Declare(capnproto GIT_REPOSITORY https://github.com/capnproto/capnproto.git GIT_TAG v1.0.2 EXCLUDE_FROM_ALL)
 FetchContent_MakeAvailable(capnproto)
 list(APPEND CMAKE_MODULE_PATH "${capnproto_SOURCE_DIR}/c++/cmake")
-message("========${CMAKE_MODULE_PATH}")
 include(${capnproto_SOURCE_DIR}/c++/cmake/CapnProtoMacros.cmake)
 # find_package(CapnProto CONFIG REQUIRED)
 capnp_generate_cpp(protocolSources protocolHeaders protocol/messages.capnp)
@@ -40,7 +35,7 @@ target_link_libraries(gitlabnssd daemonproto)
 ########################################################################################################################
 # NSS                                                                                                                  #
 ########################################################################################################################
-add_library(nss_gitlab SHARED
+add_library(nss_gitlab SHARED # <- This truly must be shared
     config.cpp
     gitlabapi.cpp
     nss_interface.cpp
@@ -48,6 +43,16 @@ add_library(nss_gitlab SHARED
 target_include_directories(nss_gitlab PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
 target_compile_features(nss_gitlab PUBLIC cxx_std_23)
 target_link_libraries(nss_gitlab PRIVATE daemonproto)
+
+########################################################################################################################
+# AUTHORIZED KEYS                                                                                                       #
+########################################################################################################################
+add_executable(authorized_keys
+    authorized_keys.cpp
+)
+target_link_libraries(authorized_keys daemonproto)
+target_link_libraries(authorized_keys nss_gitlab)
+set_target_properties(authorized_keys PROPERTIES EXPORT_NAME "fetchgitlabkeys")
 
 ########################################################################################################################
 # DEPENDENCIES                                                                                                         #
@@ -73,6 +78,7 @@ option(RAPIDJSON_BUILD_TESTS OFF)
 FetchContent_Declare(json
     GIT_REPOSITORY https://github.com/Tencent/rapidjson/
     GIT_TAG ab1842a
+    EXCLUDE_FROM_ALL
 )
 FetchContent_MakeAvailable(json)
 target_link_libraries(nss_gitlab PRIVATE RapidJSON)

@@ -8,16 +8,12 @@
 		// Update the 'dockerFile' property if you aren't using the standard 'Dockerfile' filename.
 		"dockerfile": "./Dockerfile.dev"
 	},
-
 	// Features to add to the dev container. More info: https://containers.dev/features.
 	// "features": {},
-
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.
 	// "forwardPorts": [],
-
 	// Uncomment the next line to run commands after the container is created.
 	// "postCreateCommand": "cat /etc/os-release",
-
 	// Configure tool-specific properties.
 	"customizations": {
 		"vscode": {
@@ -26,11 +22,25 @@
 				"ms-azuretools.vscode-docker",
 				"ms-vscode.cpptools-extension-pack",
 				"cschlosser.doxdocgen",
-				"jbenden.c-cpp-flylint"
-			]
+				"jbenden.c-cpp-flylint",
+				"xaver.clang-format"
+			],
+			"settings": {
+				"editor.rulers": [
+					120
+				],
+				"C_Cpp.autoAddFileAssociations": false,
+				"files.exclude": {
+					"build": true
+				},
+				"editor.formatOnSave": true,
+				"C_Cpp.codeAnalysis.clangTidy.enabled": true,
+				"C_Cpp.codeAnalysis.clangTidy.args": [
+					"-p ${workspaceFolder}/build/compile_commands.json"
+				],
+			}
 		}
 	}
-
 	// Uncomment to connect as an existing user other than the container default. More info: https://aka.ms/dev-containers-non-root.
 	// "remoteUser": "devcontainer"
 }

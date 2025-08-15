@@ -9,6 +9,7 @@ struct User {
 }
 
 interface GitLabDaemon {
-    getUserByID @0 (id :UserID) -> (user :User);
-    getUserByName @1 (name :Text) -> (user :User);
+    getUserByID @0 (id :UserID) -> (errcode :UInt32, user :User);
+    getUserByName @1 (name :Text) -> (errcode :UInt32, user :User);
+    getSSHKeys @2 (id :UserID) -> (errcode :UInt32, keys :Text);
 }

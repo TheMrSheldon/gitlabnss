@@ -1,22 +1,33 @@
-#include <config.hpp>
-#include <gitlabapi.hpp>
+#include <error.hpp>
+#include <rpcclient.hpp>
 
-#include <filesystem>
 #include <iostream>
 
-namespace fs = std::filesystem;
-
 int main(int argc, char* argv[]) {
-	auto config = Config::fromFile(fs::current_path().root_path() / "etc" / "gitlabnss" / "gitlabnss.conf");
-	gitlab::User user;
-	gitlab::GitLab gitlabclient{config};
-	gitlabclient.fetchUserByUsername(argv[1], user);
-	switch (std::vector<std::string> keys; gitlabclient.fetchAuthorizedKeys(user.id, keys)) {
-	case gitlab::Error::Ok:
-		for (auto& key : keys)
-			std::cout << key << std::endl;
-		return 0;
-	default:
-		return 1;
-	}
+	if (argc != 2)
+		return -1;
+	auto io = kj::setupAsyncIo();
+	auto& waitScope = io.waitScope;
+	auto daemon = initClient(io);
+
+	if (!daemon)
+		return -2;
+
+	// Get the user ID from the username via RPC to the daemon
+	auto userreq = daemon->getUserByNameRequest();
+	userreq.setName(argv[1]);
+	auto userresp = userreq.send().wait(waitScope);
+	if (static_cast<Error>(userresp.getErrcode()) != Error::Ok)
+		return userresp.getErrcode();
+
+	// Get the ssh public keys from user by ID via RPC to the daemon
+	auto keyreq = daemon->getSSHKeysRequest();
+	keyreq.setId(userresp.getUser().getId());
+	auto keyresp = keyreq.send().wait(waitScope);
+	if (static_cast<Error>(keyresp.getErrcode()) != Error::Ok)
+		return keyresp.getErrcode();
+
+	// Print keys and success
+	std::cout << keyresp.getKeys().cStr() << std::endl;
+	return 0;
 }

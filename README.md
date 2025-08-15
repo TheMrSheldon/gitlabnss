@@ -1,10 +1,16 @@
 # Installation
 1. Move `libnss_gitlab.so` into `/usr/lib/`
-2. Run `find / -name "pam_unix.so" 2>/dev/null` to find where pam modules are placed on your system
-3. Move and rename `libnss_gitlab.so` to `<pam-path>/pam_gitlab.so`
+2. Add `gitlab` to `/etc/nsswitch.conf`
 
-## Setting up GitLab Login with ssh:
-1. Add `auth    sufficient    pam_gitlab.so` to `/etc/pam.d/sshd`
+# With SSH
+1. Add these lines to `/etc/ssh/sshd_config`:
+```
+AuthorizedKeysCommand /bin/fetchgitlabkeys
+AuthorizedKeysCommandUser root
+```
+
+# Running
+On Ubuntu run `systemctl enable gitlabnssd` or `/etc/init.d/gitlabnssd start` to start the service.
 
 # Development
 ## Nameing
