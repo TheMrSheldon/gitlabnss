@@ -40,6 +40,10 @@ add_library(nss_gitlab SHARED # <- This truly must be shared
     gitlabapi.cpp
     nss_interface.cpp
 )
+set_target_properties(nss_gitlab PROPERTIES
+    SOVERSION 2  # Required by GNU: https://www.gnu.org/software/libc/manual/html_mono/libc.html#NSS-Module-Names
+	VERSION   ${NSSGITLAB_VERSION}
+)
 target_include_directories(nss_gitlab PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
 target_compile_features(nss_gitlab PUBLIC cxx_std_23)
 target_link_libraries(nss_gitlab PRIVATE daemonproto)
@@ -49,6 +53,9 @@ target_link_libraries(nss_gitlab PRIVATE daemonproto)
 ########################################################################################################################
 add_executable(authorized_keys
     authorized_keys.cpp
+)
+set_target_properties(authorized_keys PROPERTIES
+    OUTPUT_NAME fetchgitlabkeys
 )
 target_link_libraries(authorized_keys daemonproto)
 target_link_libraries(authorized_keys nss_gitlab)
