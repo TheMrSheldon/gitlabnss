@@ -5,9 +5,14 @@
 #include <string>
 
 struct Config {
+	// general settings
 	static constexpr const char DefaultSocketPath[] = "/var/run/gitlabnss.sock";
 	static constexpr uint16_t DefaultSocketPerms = 0666u;
 	static constexpr const char DefaultSocketOwner[] = "root:root";
+	// gitlabapi settings
+	// (no defaults)
+	// nss settings
+	static constexpr uint16_t DefaultHomePerms = 0700u;
 	static constexpr unsigned DefaultUIDOffset = 0;
 	static constexpr unsigned DefaultGIDOffset = 0;
 	static constexpr const char DefaultShell[] = "/usr/bin/bash";
@@ -23,6 +28,7 @@ struct Config {
 	} gitlabapi;
 	struct {
 		std::filesystem::path homesRoot;
+		uint16_t homePerms;
 		unsigned uidOffset;
 		unsigned gidOffset;
 		std::string groupPrefix;

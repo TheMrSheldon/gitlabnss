@@ -24,9 +24,16 @@
 namespace fs = std::filesystem;
 
 static void initLogger() {
+#if DEBUG
 	auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+#endif
 	auto basic_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>("/var/log/gitlabnss.log");
-	std::vector<spdlog::sink_ptr> sinks{console_sink, basic_sink};
+	std::vector<spdlog::sink_ptr> sinks{
+#if DEBUG
+			console_sink,
+#endif
+			basic_sink
+	};
 	auto logger = std::make_shared<spdlog::logger>("", sinks.begin(), sinks.end());
 	logger->flush_on(spdlog::level::info);
 	spdlog::set_default_logger(logger);
@@ -44,12 +51,18 @@ public:
 		spdlog::info("getUserByID({})", context.getParams().getId());
 		gitlab::User user;
 		Error err;
-		if ((err = gitlab.fetchUserByID(context.getParams().getId(), user)) == Error::Ok) {
+		if ((err = gitlab.fetchUserByID(context.getParams().getId(), user)) == Error::Ok &&
+			(err = gitlab.fetchGroups(user)) == Error::Ok) {
 			spdlog::debug("Found");
 			auto output = context.getResults().initUser();
 			output.setId(user.id);
 			output.setName(user.name);
 			output.setUsername(user.username);
+			auto groups = output.initGroups(user.groups.size());
+			for (auto i = 0; i < user.groups.size(); ++i) {
+				groups[i].setId(user.groups[i].id);
+				groups[i].setName(user.groups[i].name);
+			}
 		}
 		context.getResults().setErrcode(static_cast<uint32_t>(err));
 		return kj::READY_NOW;
@@ -58,12 +71,18 @@ public:
 		spdlog::info("getUserByName({})", context.getParams().getName().cStr());
 		gitlab::User user;
 		Error err;
-		if ((err = gitlab.fetchUserByUsername(context.getParams().getName().cStr(), user)) == Error::Ok) {
+		if ((err = gitlab.fetchUserByUsername(context.getParams().getName().cStr(), user)) == Error::Ok &&
+			(err = gitlab.fetchGroups(user)) == Error::Ok) {
 			spdlog::debug("Found");
 			auto output = context.getResults().initUser();
 			output.setId(user.id);
 			output.setName(user.name);
 			output.setUsername(user.username);
+			auto groups = output.initGroups(user.groups.size());
+			for (auto i = 0; i < user.groups.size(); ++i) {
+				groups[i].setId(user.groups[i].id);
+				groups[i].setName(user.groups[i].name);
+			}
 		}
 		context.getResults().setErrcode(static_cast<uint32_t>(err));
 		return kj::READY_NOW;

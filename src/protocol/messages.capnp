@@ -1,11 +1,20 @@
 @0xbb29a6f04ade59c8;
 
+using GroupID = UInt32;
+
+struct Group {
+    id @0 :GroupID;
+    name @1 :Text;
+}
+
 using UserID = UInt32;
 
 struct User {
     id @0 :UserID;
     username @1 :Text;
     name @2 :Text;
+    # Sorted such that primary group is first
+    groups @3 :List(Group);
 }
 
 interface GitLabDaemon {

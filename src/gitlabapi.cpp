@@ -74,11 +74,20 @@ Error GitLab::fetchAuthorizedKeys(UserID id, std::vector<std::string>& keys) con
 	return Error::Ok;
 }
 
+#include <iostream>
+#include <rapidjson/prettywriter.h>
+
 Error GitLab::fetchGroups(User& user) const {
 	auto fetched = fetch(config, std::format("{}/users/{}/memberships", config.gitlabapi.baseUrl, user.id));
 	if (!fetched.has_value())
 		return fetched.error();
 	auto& json = fetched.value();
+	rapidjson::StringBuffer sb;
+	rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(sb);
+	json.Accept(writer); // Accept() traverses the DOM and generates Handler events.
+	puts(sb.GetString());
+	std::cout << (json.IsArray() ? "Array" : "No Array") << std::endl;
+	std::cout << json.GetType() << std::endl;
 	if (!json.IsArray())
 		return Error::ResponseFormatError;
 	user.groups.clear();

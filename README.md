@@ -21,31 +21,27 @@
 
 \dot
 digraph G {
-
-  subgraph cluster_0 {
-    style=filled;
-    color=lightgrey;
-    node [style=filled,color=white];
-    a0 -> a1 -> a2 -> a3;
-    label = "process #1";
-  }
-
-  subgraph cluster_1 {
-    node [style=filled];
-    b0 -> b1 -> b2 -> b3;
-    label = "process #2";
-    color=blue
-  }
-  start -> a0;
-  start -> b0;
-  a1 -> b3;
-  b2 -> a3;
-  a3 -> a0;
-  a3 -> end;
-  b3 -> end;
-
-  start [shape=Mdiamond];
-  end [shape=Msquare];
+    subgraph Files {
+        #label = "Files";
+        cluster=True;
+        
+        secret [color=blue];
+        "gitlabnss.conf" [color=blue];
+    };
+    subgraph Programs {
+        #label = "Programs";
+        cluster=True;
+        
+        gitlabnssd;
+        authorizedkeys;
+        "libnss_gitlab.so";
+    };
+    "gitlabnss.sock" [color=purple];
+    
+    {gitlabnssd, authorizedkeys, "libnss_gitlab.so"} -> "gitlabnss.conf" [color=blue];
+    gitlabnssd -> secret [color=blue];
+    gitlabnssd -> "gitlabnss.sock" [color=purple, label=listen];
+    {authorizedkeys, "libnss_gitlab.so"} -> "gitlabnss.sock" [color=purple, label=connect];
 }
 \enddot
 

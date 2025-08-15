@@ -15,9 +15,9 @@ static std::optional<std::string> tryReadSecret(const std::filesystem::path& pat
 }
 
 Config Config::fromFile(const std::filesystem::path& file) noexcept {
-	auto config = toml::parse_file("/etc/gitlabnss/gitlabnss.conf");
+	auto config = toml::parse_file(file.string());
 	if (!config) {
-		std::cout << "Not found" << std::endl;
+		std::cout << "Not found or invalid TOML: " << config.error() << std::endl;
 		// No config found
 		return Config{}; /** \todo do something sensible **/
 	} else {
@@ -39,6 +39,7 @@ Config Config::fromFile(const std::filesystem::path& file) noexcept {
 										   .and_then(tryReadSecret)
 										   .value_or(""s)},
 				.nss = {.homesRoot = std::filesystem::path{table["nss"]["homes_root"].value_or("/homes/"s)},
+						.homePerms = table["nss"]["homes_permissions"].value_or(Config::DefaultHomePerms),
 						.uidOffset = table["nss"]["uid_offset"].value_or(Config::DefaultUIDOffset),
 						.gidOffset = table["nss"]["gid_offset"].value_or(Config::DefaultGIDOffset),
 						.groupPrefix = table["nss"]["group_prefix"].value_or(""),
